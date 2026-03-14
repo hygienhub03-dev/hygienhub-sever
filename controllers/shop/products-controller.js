@@ -1,81 +1,39 @@
-const Product = require("../../models/Product");
+const { createAppwriteClient, DATABASE_ID, COLLECTIONS, Query } = require("../../helpers/appwrite");
 
 const getFilteredProducts = async (req, res) => {
   try {
-    const { category = [], brand = [], sortBy = "price-lowtohigh" } = req.query;
+    const { category = "", brand = "", sortBy = "price-lowtohigh" } = req.query;
+    const db = createAppwriteClient();
 
-    let filters = {};
-
-    if (category.length) {
-      filters.category = { $in: category.split(",") };
-    }
-
-    if (brand.length) {
-      filters.brand = { $in: brand.split(",") };
-    }
-
-    let sort = {};
+    const queries = [Query.limit(500)];
+    if (category.length) queries.push(Query.equal("category", category.split(",")));
+    if (brand.length)    queries.push(Query.equal("brand", brand.split(",")));
 
     switch (sortBy) {
-      case "price-lowtohigh":
-        sort.price = 1;
-
-        break;
-      case "price-hightolow":
-        sort.price = -1;
-
-        break;
-      case "title-atoz":
-        sort.title = 1;
-
-        break;
-
-      case "title-ztoa":
-        sort.title = -1;
-
-        break;
-
-      default:
-        sort.price = 1;
-        break;
+      case "price-hightolow": queries.push(Query.orderDesc("price")); break;
+      case "title-atoz":      queries.push(Query.orderAsc("title"));  break;
+      case "title-ztoa":      queries.push(Query.orderDesc("title")); break;
+      default:                queries.push(Query.orderAsc("price"));  break;
     }
 
-    const products = await Product.find(filters).sort(sort);
-
-    res.status(200).json({
-      success: true,
-      data: products,
-    });
+    const result = await db.listDocuments(DATABASE_ID, COLLECTIONS.products, queries);
+    const data = result.documents.map((p) => ({ ...p, _id: p.$id }));
+    res.status(200).json({ success: true, data });
   } catch (e) {
-    console.log(error);
-    res.status(500).json({
-      success: false,
-      message: "Some error occured",
-    });
+    console.log(e);
+    res.status(500).json({ success: false, message: "Some error occured" });
   }
 };
 
 const getProductDetails = async (req, res) => {
   try {
     const { id } = req.params;
-    const product = await Product.findById(id);
-
-    if (!product)
-      return res.status(404).json({
-        success: false,
-        message: "Product not found!",
-      });
-
-    res.status(200).json({
-      success: true,
-      data: product,
-    });
+    const db = createAppwriteClient();
+    const product = await db.getDocument(DATABASE_ID, COLLECTIONS.products, id);
+    res.status(200).json({ success: true, data: { ...product, _id: product.$id } });
   } catch (e) {
-    console.log(error);
-    res.status(500).json({
-      success: false,
-      message: "Some error occured",
-    });
+    console.log(e);
+    res.status(500).json({ success: false, message: "Some error occured" });
   }
 };
 

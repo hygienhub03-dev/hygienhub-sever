@@ -1,6 +1,5 @@
 const { imageUploadUtil } = require("../../helpers/cloudinary");
-const Product = require("../../models/Product");
-const Order = require("../../models/Order");
+const { createAppwriteClient, DATABASE_ID, COLLECTIONS, ID, Query } = require("../../helpers/appwrite");
 
 async function resolveProductImage(req) {
   if (req.file?.buffer && req.file?.mimetype) {
@@ -28,228 +27,146 @@ const handleImageUpload = async (req, res) => {
     const b64 = Buffer.from(req.file.buffer).toString("base64");
     const url = "data:" + req.file.mimetype + ";base64," + b64;
     const result = await imageUploadUtil(url);
-
-    res.json({
-      success: true,
-      result,
-    });
+    res.json({ success: true, result });
   } catch (error) {
     console.log(error);
-    res.json({
-      success: false,
-      message: "Error occured",
-    });
+    res.json({ success: false, message: "Error occured" });
   }
 };
 
 const recomputeProductSales = async (req, res) => {
   try {
-    await Product.updateMany(
-      {},
-      {
-        $set: {
-          unitsSold: 0,
-          revenue: 0,
-          sales: 0,
-        },
-      }
-    );
+    const db = createAppwriteClient();
 
-    const stats = await Order.aggregate([
-      { $match: { paymentStatus: "paid" } },
-      { $unwind: "$cartItems" },
-      {
-        $group: {
-          _id: "$cartItems.productId",
-          unitsSold: { $sum: "$cartItems.quantity" },
-          revenue: {
-            $sum: {
-              $multiply: [
-                "$cartItems.quantity",
-                {
-                  $convert: {
-                    input: "$cartItems.price",
-                    to: "double",
-                    onError: 0,
-                    onNull: 0,
-                  },
-                },
-              ],
-            },
-          },
-        },
-      },
+    // Fetch all paid orders from Appwrite
+    const ordersResult = await db.listDocuments(DATABASE_ID, COLLECTIONS.orders, [
+      Query.equal("paymentStatus", "paid"),
+      Query.limit(5000),
     ]);
 
-    const ops = stats
-      .filter((s) => s?._id)
-      .map((s) => ({
-        updateOne: {
-          filter: { _id: s._id },
-          update: {
-            $set: {
-              unitsSold: s.unitsSold || 0,
-              revenue: s.revenue || 0,
-              sales: s.revenue || 0,
-            },
-          },
-        },
-      }));
+    // Aggregate sales per product
+    const statsMap = new Map();
+    for (const order of ordersResult.documents) {
+      const cartItems = JSON.parse(order.cartItems || "[]");
+      for (const item of cartItems) {
+        const pid = String(item.productId);
+        const qty = Number(item.quantity) || 0;
+        const price = Number(item.price) || 0;
+        const revenue = qty * price;
+        const existing = statsMap.get(pid);
+        if (!existing) {
+          statsMap.set(pid, { unitsSold: qty, revenue });
+        } else {
+          existing.unitsSold += qty;
+          existing.revenue += revenue;
+        }
+      }
+    }
 
-    if (ops.length) {
-      await Product.bulkWrite(ops, { ordered: false });
+    // Update each product in Appwrite
+    let updated = 0;
+    for (const [productId, stats] of statsMap.entries()) {
+      try {
+        await db.updateDocument(DATABASE_ID, COLLECTIONS.products, productId, {
+          unitsSold: stats.unitsSold,
+          revenue: stats.revenue,
+          sales: stats.revenue,
+        });
+        updated++;
+      } catch (err) {
+        console.warn(`Could not update product ${productId}:`, err.message);
+      }
     }
 
     res.status(200).json({
       success: true,
       message: "Product sales counters recomputed successfully",
-      updated: ops.length,
+      updated,
     });
   } catch (e) {
     console.log(e);
-    res.status(500).json({
-      success: false,
-      message: "Error occured",
-    });
+    res.status(500).json({ success: false, message: "Error occured" });
   }
 };
 
-//add a new product
 const addProduct = async (req, res) => {
   try {
-    const {
-      title,
-      description,
-      category,
-      brand,
-      price,
-      salePrice,
-      totalStock,
-      averageReview,
-    } = req.body;
-
-    console.log(averageReview, "averageReview");
-
+    const { title, description, category, brand, price, salePrice, totalStock, averageReview } = req.body;
+    const db = createAppwriteClient();
     const imageUrl = await resolveProductImage(req);
 
-    const newlyCreatedProduct = new Product({
-      image: imageUrl || req.body?.image,
-      title,
-      description,
-      category,
-      brand,
-      price,
-      salePrice,
-      totalStock,
-      averageReview,
+    const product = await db.createDocument(DATABASE_ID, COLLECTIONS.products, ID.unique(), {
+      image: imageUrl || req.body?.image || "",
+      title: title || "",
+      description: description || "",
+      category: category || "",
+      brand: brand || "",
+      price: Number(price) || 0,
+      salePrice: Number(salePrice) || 0,
+      totalStock: Number(totalStock) || 0,
+      averageReview: Number(averageReview) || 0,
     });
 
-    await newlyCreatedProduct.save();
-    res.status(201).json({
-      success: true,
-      data: newlyCreatedProduct,
-    });
+    res.status(201).json({ success: true, data: { ...product, _id: product.$id } });
   } catch (e) {
     console.log(e);
-    res.status(500).json({
-      success: false,
-      message: "Error occured",
-    });
+    res.status(500).json({ success: false, message: "Error occured" });
   }
 };
-
-//fetch all products
 
 const fetchAllProducts = async (req, res) => {
   try {
-    const listOfProducts = await Product.find({});
-    res.status(200).json({
-      success: true,
-      data: listOfProducts,
-    });
+    const db = createAppwriteClient();
+    const result = await db.listDocuments(DATABASE_ID, COLLECTIONS.products, [
+      Query.limit(500),
+    ]);
+    const data = result.documents.map((p) => ({ ...p, _id: p.$id }));
+    res.status(200).json({ success: true, data });
   } catch (e) {
     console.log(e);
-    res.status(500).json({
-      success: false,
-      message: "Error occured",
-    });
+    res.status(500).json({ success: false, message: "Error occured" });
   }
 };
 
-//edit a product
 const editProduct = async (req, res) => {
   try {
     const { id } = req.params;
-    const {
-      title,
-      description,
-      category,
-      brand,
-      price,
-      salePrice,
-      totalStock,
-      averageReview,
-    } = req.body;
+    const { title, description, category, brand, price, salePrice, totalStock, averageReview } = req.body;
+    const db = createAppwriteClient();
 
-    let findProduct = await Product.findById(id);
-    if (!findProduct)
-      return res.status(404).json({
-        success: false,
-        message: "Product not found",
-      });
+    const existing = await db.getDocument(DATABASE_ID, COLLECTIONS.products, id);
+    if (!existing) return res.status(404).json({ success: false, message: "Product not found" });
 
-    findProduct.title = title || findProduct.title;
-    findProduct.description = description || findProduct.description;
-    findProduct.category = category || findProduct.category;
-    findProduct.brand = brand || findProduct.brand;
-    findProduct.price = price === "" ? 0 : price || findProduct.price;
-    findProduct.salePrice =
-      salePrice === "" ? 0 : salePrice || findProduct.salePrice;
-    findProduct.totalStock = totalStock || findProduct.totalStock;
     const imageUrl = await resolveProductImage(req);
-    if (imageUrl) {
-      findProduct.image = imageUrl;
-    } else if (typeof req.body?.image === "string" && req.body.image.trim()) {
-      findProduct.image = req.body.image;
-    }
-    findProduct.averageReview = averageReview || findProduct.averageReview;
+    const updates = {};
+    if (title !== undefined)         updates.title = title;
+    if (description !== undefined)   updates.description = description;
+    if (category !== undefined)      updates.category = category;
+    if (brand !== undefined)         updates.brand = brand;
+    if (price !== undefined)         updates.price = Number(price) || 0;
+    if (salePrice !== undefined)     updates.salePrice = Number(salePrice) || 0;
+    if (totalStock !== undefined)    updates.totalStock = Number(totalStock) || 0;
+    if (averageReview !== undefined) updates.averageReview = Number(averageReview) || 0;
+    if (imageUrl)                    updates.image = imageUrl;
+    else if (typeof req.body?.image === "string" && req.body.image.trim()) updates.image = req.body.image;
 
-    await findProduct.save();
-    res.status(200).json({
-      success: true,
-      data: findProduct,
-    });
+    const updated = await db.updateDocument(DATABASE_ID, COLLECTIONS.products, id, updates);
+    res.status(200).json({ success: true, data: { ...updated, _id: updated.$id } });
   } catch (e) {
     console.log(e);
-    res.status(500).json({
-      success: false,
-      message: "Error occured",
-    });
+    res.status(500).json({ success: false, message: "Error occured" });
   }
 };
 
-//delete a product
 const deleteProduct = async (req, res) => {
   try {
     const { id } = req.params;
-    const product = await Product.findByIdAndDelete(id);
-
-    if (!product)
-      return res.status(404).json({
-        success: false,
-        message: "Product not found",
-      });
-
-    res.status(200).json({
-      success: true,
-      message: "Product delete successfully",
-    });
+    const db = createAppwriteClient();
+    await db.deleteDocument(DATABASE_ID, COLLECTIONS.products, id);
+    res.status(200).json({ success: true, message: "Product deleted successfully" });
   } catch (e) {
     console.log(e);
-    res.status(500).json({
-      success: false,
-      message: "Error occured",
-    });
+    res.status(500).json({ success: false, message: "Error occured" });
   }
 };
 
