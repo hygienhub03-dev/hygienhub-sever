@@ -34,10 +34,14 @@ app.use(
     origin: (origin, callback) => {
       // Allow requests with no origin (mobile apps, curl, server-to-server)
       if (!origin) return callback(null, true);
-      // Exact match
+      // Exact match against whitelisted origins
       if (allowedOrigins.includes(origin)) return callback(null, true);
-      // Wildcard: allow any vercel.app subdomain in dev (remove if too permissive)
-      if (IS_PROD === false && origin.endsWith(".vercel.app")) return callback(null, true);
+      // Allow all Vercel preview deployments for your team
+      if (origin.endsWith("-hygienhub03-devs-projects.vercel.app")) return callback(null, true);
+      // Also allow any hygiene-hub-admin preview URLs
+      if (/^https:\/\/hygiene-hub-admin(-[a-z0-9]+)*\.vercel\.app$/.test(origin)) return callback(null, true);
+      // Allow any hygienhub preview URLs
+      if (/^https:\/\/hygienhub(-[a-z0-9]+)*\.vercel\.app$/.test(origin)) return callback(null, true);
       console.warn(`[CORS] Blocked origin: ${origin}`);
       return callback(new Error(`CORS blocked for origin: ${origin}`));
     },
