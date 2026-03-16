@@ -27,11 +27,18 @@ const allowedOrigins = (
   .map((s) => s.trim())
   .filter(Boolean);
 
+console.log("[CORS] Allowed origins:", allowedOrigins);
+
 app.use(
   cors({
     origin: (origin, callback) => {
+      // Allow requests with no origin (mobile apps, curl, server-to-server)
       if (!origin) return callback(null, true);
+      // Exact match
       if (allowedOrigins.includes(origin)) return callback(null, true);
+      // Wildcard: allow any vercel.app subdomain in dev (remove if too permissive)
+      if (IS_PROD === false && origin.endsWith(".vercel.app")) return callback(null, true);
+      console.warn(`[CORS] Blocked origin: ${origin}`);
       return callback(new Error(`CORS blocked for origin: ${origin}`));
     },
     methods: ["GET", "POST", "DELETE", "PUT"],

@@ -195,6 +195,7 @@ const loginUser = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: "Logged in successfully",
+      token, // also return in body for cross-site Bearer auth
       user: { email: user.email, role, id: user.$id, userName: user.name },
     });
   } catch (e) {
@@ -240,6 +241,7 @@ const verifyMfaLogin = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: "Logged in successfully",
+      token, // also return in body for cross-site Bearer auth
       user: {
         email: user.email,
         role: user.prefs?.role || "user",
@@ -419,7 +421,13 @@ const logoutUser = (req, res) => {
 };
 
 const authMiddleware = async (req, res, next) => {
-  const token = req.cookies.token;
+  // Accept Bearer token from Authorization header (for cross-site admin)
+  // OR fall back to httpOnly cookie (for same-site usage)
+  let token = req.cookies.token;
+  const authHeader = req.headers["authorization"] || "";
+  if (!token && authHeader.startsWith("Bearer ")) {
+    token = authHeader.slice(7).trim();
+  }
   if (!token) return res.status(401).json({ success: false, message: "Unauthorised user!" });
   try {
     assertJwtSecret();
