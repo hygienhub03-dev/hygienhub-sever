@@ -4,7 +4,7 @@ const resend = new Resend(process.env.RESEND_API_KEY || "");
 const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "Hygiene Hub <onboarding@resend.dev>";
 const SUPPORT_EMAIL = process.env.SUPPORT_EMAIL || "hygienhub@gmail.com";
 const STORE_URL = (process.env.CLIENT_URL || "http://localhost:5173").split(",")[0];
-const EMAIL_LOGO_URL = process.env.EMAIL_LOGO_URL || `${STORE_URL}/logo.png`;
+const EMAIL_LOGO_URL = process.env.EMAIL_LOGO_URL || `${STORE_URL}/images/logo.png`;
 
 function escapeHtml(value) {
   return String(value ?? "")
