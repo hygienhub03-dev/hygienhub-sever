@@ -239,7 +239,9 @@ const getOrderDetails = async (req, res) => {
     const db = createAppwriteClient();
 
     const o = await db.getDocument(DATABASE_ID, COLLECTIONS.orders, id);
-    if (!assertCanAccessOrder(req.user, o.userId)) {
+    // Route is public — anyone with the order ID can view it (like a tracking link)
+    // If user is authenticated, additionally verify ownership for extra safety
+    if (req.user && !assertCanAccessOrder(req.user, o.userId)) {
       return res.status(403).json({ success: false, message: "Not authorised to view this order" });
     }
 

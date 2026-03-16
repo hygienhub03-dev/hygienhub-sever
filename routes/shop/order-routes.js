@@ -22,6 +22,7 @@ router.post("/create", validate(createOrderSchema), createOrder);
 router.post("/capture", validate(capturePaymentSchema), capturePayment);
 router.post("/webhook/paystack", paystackWebhook);
 router.get("/list/:userId", authMiddleware, validate(listOrdersParamsSchema, "params"), getAllOrdersByUser);
-router.get("/details/:id", authMiddleware, validate(orderDetailsParamsSchema, "params"), getOrderDetails);
+// Public — anyone with the order ID can look up their order (no auth required)
+router.get("/details/:id", validate(orderDetailsParamsSchema, "params"), getOrderDetails);
 
 module.exports = router;
