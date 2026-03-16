@@ -30,15 +30,7 @@ const upload = multer({
 });
 
 // ── Internal helper ──────────────────────────────────────────────────────────
-/**
- * Resolves the final image URL for a product request.
- * Priority:
- *  1. Multipart file upload  → uploaded to Appwrite Storage
- *  2. Base64 data URL in body → uploaded to Appwrite Storage
- *  3. Plain https:// URL      → used as-is (already stored in Appwrite)
- */
 async function resolveProductImage(req) {
-  // 1. Multipart file
   if (req.file?.buffer && req.file?.mimetype) {
     return await uploadImageToAppwrite(
       req.file.buffer,
@@ -49,7 +41,6 @@ async function resolveProductImage(req) {
 
   const image = req.body?.image;
 
-  // 2. Base64 data URL
   if (typeof image === "string" && /^data:/i.test(image)) {
     const matches = image.match(/^data:([^;]+);base64,(.+)$/);
     if (matches) {
@@ -59,7 +50,6 @@ async function resolveProductImage(req) {
     }
   }
 
-  // 3. Already an https URL (Appwrite or otherwise)
   if (typeof image === "string" && /^https?:\/\//i.test(image)) {
     return image;
   }
@@ -95,7 +85,8 @@ const recomputeProductSales = async (req, res) => {
       Query.limit(5000),
     ]);
 
-    // Aggregate revenue per product
+    // Aggregate revenue per product — read-only, no writes to Appwrite
+    // (sales/unitsSold attributes don't exist in the products schema)
     const statsMap = new Map();
     for (const order of ordersResult.documents) {
       const cartItems = JSON.parse(order.cartItems || "[]");
@@ -103,33 +94,21 @@ const recomputeProductSales = async (req, res) => {
         const pid = String(item.productId);
         const qty = Number(item.quantity) || 0;
         const price = Number(item.price) || 0;
-        const revenue = qty * price;
         const existing = statsMap.get(pid);
         if (!existing) {
-          statsMap.set(pid, { revenue });
+          statsMap.set(pid, { unitsSold: qty, revenue: qty * price });
         } else {
-          existing.revenue += revenue;
+          existing.unitsSold += qty;
+          existing.revenue += qty * price;
         }
       }
     }
 
-    // Only write "sales" — it's the only sales-related attribute in the Appwrite schema
-    let updated = 0;
-    for (const [productId, stats] of statsMap.entries()) {
-      try {
-        await db.updateDocument(DATABASE_ID, COLLECTIONS.products, productId, {
-          sales: stats.revenue,
-        });
-        updated++;
-      } catch (err) {
-        console.warn(`Could not update product ${productId}:`, err.message);
-      }
-    }
-
+    const stats = Object.fromEntries(statsMap);
     res.status(200).json({
       success: true,
-      message: "Product sales counters recomputed successfully",
-      updated,
+      message: "Product sales computed from orders",
+      stats,
     });
   } catch (e) {
     console.error("[recomputeProductSales]", e);
