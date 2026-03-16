@@ -150,7 +150,7 @@ const loginUser = async (req, res) => {
     assertJwtSecret();
     const users = createUsersClient();
     const account = new Account(createAccountClient());
-    const passwordSession = await account.createEmailPasswordSession({ email, password });
+    const passwordSession = await account.createEmailPasswordSession(email, password);
     const user = await users.get(passwordSession.userId);
     const role = user.prefs?.role || "user";
     const mfaEnabled = Boolean(user.mfa || user.prefs?.security2fa?.enabled);
@@ -187,12 +187,10 @@ const loginUser = async (req, res) => {
     clearTransientCookie(res, MFA_PENDING_COOKIE, "/api/auth/mfa");
     clearTransientCookie(res, MFA_SETUP_COOKIE, "/api/auth/mfa/setup");
     res.cookie("token", token, getCookieOptions());
-    if (setupSession.$id !== passwordSession.$id) {
-      try {
-        await users.deleteSession(user.$id, passwordSession.$id);
-      } catch {
-        // Best effort cleanup of password verification session.
-      }
+    try {
+      await users.deleteSession(user.$id, passwordSession.$id);
+    } catch {
+      // Best effort cleanup of password verification session.
     }
     return res.status(200).json({
       success: true,
@@ -275,10 +273,7 @@ const startMfaSetup = async (req, res) => {
     const users = createUsersClient();
     const user = await users.get(String(req.user.id));
     const account = new Account(createAccountClient());
-    const passwordSession = await account.createEmailPasswordSession({
-      email: user.email,
-      password,
-    });
+    const passwordSession = await account.createEmailPasswordSession(user.email, password);
 
     const setupSession = passwordSession.secret
       ? passwordSession
