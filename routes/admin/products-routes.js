@@ -2,6 +2,7 @@ const express = require("express");
 const { authMiddleware, adminOnly } = require("../../controllers/auth/auth-controller");
 
 const {
+  upload,
   handleImageUpload,
   addProduct,
   editProduct,
@@ -9,8 +10,6 @@ const {
   deleteProduct,
   recomputeProductSales,
 } = require("../../controllers/admin/products-controller");
-
-const { upload } = require("../../helpers/cloudinary");
 
 const router = express.Router();
 router.use(authMiddleware, adminOnly);
