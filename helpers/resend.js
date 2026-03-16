@@ -35,7 +35,7 @@ async function sendOrderConfirmation(toEmail, order) {
         });
     const totalAmount = Number(order.totalAmount || 0).toFixed(2);
     const customerName = escapeHtml(order.customerName || order.addressInfo?.name || "there");
-    const trackOrderUrl = `${STORE_URL}/paystack-return?orderId=${encodeURIComponent(safeOrderId)}`;
+    const trackOrderUrl = `${STORE_URL}/track-order?orderId=${encodeURIComponent(safeOrderId)}`;
 
     const itemsHtml = (order.cartItems || [])
       .map(
